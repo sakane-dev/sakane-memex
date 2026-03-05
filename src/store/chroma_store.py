@@ -2,12 +2,13 @@
 sakane-memex / src/store/chroma_store.py
 
 ChromaDB による永続化ベクトルストア。
-Ollama nomic-embed-text を embedding 関数として使用。
+Ollama qwen3-embedding を embedding 関数として使用。
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 import chromadb
@@ -34,7 +35,7 @@ class CorpusStore:
         persist_dir: str = "data/chroma_db",
         collection_name: str = "sakane_corpus",
         ollama_base_url: str = "http://localhost:11434",
-        embedding_model: str = "nomic-embed-text:latest",
+        embedding_model: str = "qwen3-embedding:latest",
     ):
         self.persist_dir = persist_dir
         self.collection_name = collection_name
@@ -72,8 +73,6 @@ class CorpusStore:
         """
         if not chunks:
             return 0
-
-        import math
 
         added = 0
         for i in range(0, len(chunks), batch_size):
