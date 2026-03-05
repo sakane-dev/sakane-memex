@@ -37,3 +37,7 @@ tree.md
 data/2025-2026_mybuzzwords/
 
 .venv/
+
+# Python cache
+__pycache__/
+*.pyc
