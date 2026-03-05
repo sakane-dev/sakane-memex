@@ -35,3 +35,5 @@ tree.md
 
 # Notionエクスポート元データ
 data/2025-2026_mybuzzwords/
+
+.venv/
