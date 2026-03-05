@@ -1,0 +1,72 @@
+# sakane-memex configuration
+# Version: 2026.1
+
+project:
+  name: sakane-memex
+  version: "2026.1"
+  description: "Personal Semantic Knowledge Base — Sakane Structural Corpus"
+
+paths:
+  data_raw: "data/raw"
+  chroma_db: "data/chroma_db"
+  exports: "data/exports"
+
+ingestor:
+  supported_extensions: [".md", ".txt", ".pdf", ".csv"]
+  notion_export: true  # Notionエクスポート特有の構造を解析
+
+chunker:
+  strategy: "semantic"          # "fixed" | "semantic" | "paragraph"
+  chunk_size: 512               # トークン数の目安
+  chunk_overlap: 64
+  min_chunk_length: 50          # これ未満のチャンクは破棄
+  paragraph_separator: "\n\n"
+
+embedder:
+  # ローカルOllama経由 nomic-embed-text
+  provider: "ollama"
+  model: "qwen3-embedding:latest"
+  ollama_base_url: "http://localhost:11434"
+  batch_size: 32
+  dimension: 768
+
+store:
+  provider: "chroma"
+  collection_name: "sakane_corpus"
+  distance_metric: "cosine"
+
+analyzer:
+  # 文脈抽出・仮説生成LLM
+  primary:
+    provider: "ollama"
+    model: "qwen3:latest"
+    ollama_base_url: "http://localhost:11434"
+    temperature: 0.3
+    max_tokens: 2048
+
+  fallback:
+    provider: "gemini"
+    model: "gemini-2.0-flash"
+    temperature: 0.3
+    max_tokens: 2048
+    # API keyは環境変数 GEMINI_API_KEY から取得
+
+  # 文脈抽出の粒度
+  extract_paradigm: true         # パラダイム分類
+  extract_context: true          # 使用文脈・背景
+  extract_hypothesis: true       # 意味論的仮説生成
+  extract_relations: true        # 概念間関係
+
+graph:
+  provider: "networkx"           # 将来: "neo4j"
+  export_format: ["graphml", "json"]
+  min_edge_weight: 2
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
