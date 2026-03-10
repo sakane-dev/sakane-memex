@@ -195,6 +195,26 @@ class CorpusStore:
             logger.error("get_by_id failed for %s: %s", chunk_id, e)
         return None
 
+    def get_all_chunks(self) -> list[dict[str, Any]]:
+        """全チャンクをIDとメタデータ付きで返す（graph-build用）。"""
+        try:
+            result = self._collection.get(
+                include=["documents", "metadatas"],
+            )
+            chunks = []
+            for i, chunk_id in enumerate(result["ids"]):
+                chunks.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "text": result["documents"][i],
+                        "metadata": result["metadatas"][i],
+                    }
+                )
+            return chunks
+        except Exception as e:
+            logger.error("get_all_chunks failed: %s", e)
+            return []
+
     def count(self) -> int:
         """格納済みチャンク数を返す。"""
         return self._collection.count()

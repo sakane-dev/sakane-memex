@@ -274,6 +274,178 @@ def analyze(ctx, text, file, chunk_id, json_output):
 
 
 # ------------------------------------------------------------------
+# graph-build
+# ------------------------------------------------------------------
+
+
+@cli.command("graph-build")
+@click.option(
+    "--output", default="data/exports/knowledge_graph.json", help="JSON出力パス"
+)
+@click.option(
+    "--output-graphml",
+    default="data/exports/knowledge_graph.graphml",
+    help="GraphML出力パス",
+)
+@click.option("--resume", is_flag=True, help="中断済みの進捗から再開")
+@click.option("--batch-size", default=10, help="進捗保存間隔（件数）")
+@click.pass_context
+def graph_build(ctx, output, output_graphml, resume, batch_size):
+    """619件全チャンクをqwen3で分析し知識グラフを構築する。
+
+    初回実行（数時間かかる）:
+        python -m cli.corpus_cli graph-build
+
+    クラッシュ後の再開:
+        python -m cli.corpus_cli graph-build --resume
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    from src.graph.knowledge_graph import KnowledgeGraph
+    from src.analyzer.context_extractor import ContextExtractor
+
+    cfg = ctx.obj["cfg"]
+    store = _init_store(cfg)
+    extractor = ContextExtractor(cfg)
+
+    progress_path = _Path("data/exports/graph_progress.json")
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 全チャンク取得
+    with console.status("[cyan]Loading all chunks from ChromaDB...[/cyan]"):
+        all_chunks = store.get_all_chunks()
+
+    if not all_chunks:
+        console.print("[red]Error: No chunks found. Run 'ingest' first.[/red]")
+        return
+
+    console.print(f"[green]✓ Loaded {len(all_chunks)} chunks[/green]")
+
+    # resume: 処理済みchunk_idを読み込む
+    completed_ids: set[str] = set()
+    analyses = []
+
+    if resume and progress_path.exists():
+        with open(progress_path, encoding="utf-8") as f:
+            progress_data = _json.load(f)
+        completed_ids = set(progress_data.get("completed_ids", []))
+        analyses = progress_data.get("analyses", [])
+        console.print(
+            f"[yellow]Resuming: {len(completed_ids)} chunks already processed[/yellow]"
+        )
+
+    # 未処理チャンクを抽出
+    pending = [c for c in all_chunks if c["chunk_id"] not in completed_ids]
+    console.print(f"[cyan]Pending: {len(pending)} chunks to analyze[/cyan]")
+
+    if not pending:
+        console.print("[green]All chunks already processed. Building graph...[/green]")
+    else:
+        # LLM分析ループ
+        with console.status("") as status:
+            for i, chunk in enumerate(pending, 1):
+                chunk_id = chunk["chunk_id"]
+                anchor_text = chunk["metadata"].get("anchor_text") or chunk["text"]
+
+                status.update(
+                    f"[cyan]Analyzing [{i}/{len(pending)}] {anchor_text[:40]}...[/cyan]"
+                )
+
+                analysis = extractor.extract(anchor_text, chunk_id=chunk_id)
+
+                # ContextAnalysisをdict化して保存
+                analyses.append(
+                    {
+                        "chunk_id": analysis.chunk_id,
+                        "chunk_text": analysis.chunk_text,
+                        "paradigm": analysis.paradigm,
+                        "context_summary": analysis.context_summary,
+                        "key_concepts": analysis.key_concepts,
+                        "implicit_assumptions": analysis.implicit_assumptions,
+                        "semantic_hypothesis": analysis.semantic_hypothesis,
+                        "relations": analysis.relations,
+                        "temporal_marker": analysis.temporal_marker,
+                        "provider_used": analysis.provider_used,
+                    }
+                )
+                completed_ids.add(chunk_id)
+
+                # batch_size件ごとに進捗保存
+                if i % batch_size == 0:
+                    with open(progress_path, "w", encoding="utf-8") as f:
+                        _json.dump(
+                            {
+                                "completed_ids": list(completed_ids),
+                                "analyses": analyses,
+                            },
+                            f,
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                    console.print(f"[dim]  Progress saved: {i}/{len(pending)}[/dim]")
+
+        # 最終進捗保存
+        with open(progress_path, "w", encoding="utf-8") as f:
+            _json.dump(
+                {
+                    "completed_ids": list(completed_ids),
+                    "analyses": analyses,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+        console.print(f"[green]✓ Analysis complete: {len(analyses)} chunks[/green]")
+
+    # ContextAnalysisオブジェクトに復元してグラフ構築
+    from src.analyzer.context_extractor import ContextAnalysis
+
+    analysis_objects = [
+        ContextAnalysis(
+            chunk_id=a["chunk_id"],
+            chunk_text=a["chunk_text"],
+            paradigm=a["paradigm"],
+            context_summary=a["context_summary"],
+            key_concepts=a["key_concepts"],
+            implicit_assumptions=a["implicit_assumptions"],
+            semantic_hypothesis=a["semantic_hypothesis"],
+            relations=a["relations"],
+            temporal_marker=a["temporal_marker"],
+            provider_used=a["provider_used"],
+        )
+        for a in analyses
+    ]
+
+    with console.status("[cyan]Building knowledge graph...[/cyan]"):
+        kg = KnowledgeGraph(min_edge_weight=2)
+        kg.build_from_analyses(analysis_objects)
+
+    # エクスポート
+    with console.status("[cyan]Exporting...[/cyan]"):
+        kg.export(output, format="json")
+        kg.export(output_graphml, format="graphml")
+
+    # サマリー
+    top = kg.get_top_concepts(n=10)
+    table = Table(title="Knowledge Graph Summary")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="white")
+    table.add_row("Total chunks analyzed", str(len(analyses)))
+    table.add_row("Graph nodes", str(kg.G.number_of_nodes()))
+    table.add_row("Graph edges", str(kg.G.number_of_edges()))
+    table.add_row("JSON output", output)
+    table.add_row("GraphML output", output_graphml)
+    console.print(table)
+
+    console.print("\n[bold]Top 10 concepts:[/bold]")
+    for c in top:
+        console.print(
+            f"  [cyan]{c['concept']}[/cyan] freq={c['frequency']} degree={c['degree']}"
+        )
+
+
+# ------------------------------------------------------------------
 # stats
 # ------------------------------------------------------------------
 
