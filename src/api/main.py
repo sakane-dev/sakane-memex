@@ -10,14 +10,17 @@ FastAPI による REST API インターフェース。
   GET  /graph/concept   - 概念の知識グラフ近傍
   GET  /stats           - コーパス統計
 """
+
 from __future__ import annotations
 
 import logging
+import json as _json
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import load_config, setup_logging
@@ -71,8 +74,9 @@ def get_extractor() -> ContextExtractor:
 # Request / Response models
 # ------------------------------------------------------------------
 
+
 class IngestRequest(BaseModel):
-    path: str                     # ファイルまたはディレクトリのパス
+    path: str  # ファイルまたはディレクトリのパス
     recursive: bool = True
     force_reingest: bool = False  # 既存データを上書き
 
@@ -92,7 +96,8 @@ class AnalyzeRequest(BaseModel):
 # Endpoints
 # ------------------------------------------------------------------
 
-@app.get("/")
+
+@app.get("/api/info")
 async def root():
     return {
         "name": "sakane-memex",
@@ -125,7 +130,11 @@ async def ingest(req: IngestRequest) -> dict[str, Any]:
         docs = parser.parse_directory(path, recursive=req.recursive)
 
     if not docs:
-        return {"status": "warning", "message": "No documents parsed", "chunks_added": 0}
+        return {
+            "status": "warning",
+            "message": "No documents parsed",
+            "chunks_added": 0,
+        }
 
     # 再インジェスト時は既存データを削除
     if req.force_reingest:
@@ -218,7 +227,9 @@ async def graph_concept(
                 "score": r["score"],
                 "heading_context": r["metadata"].get("heading_context", ""),
                 "language": r["metadata"].get("language", ""),
-                "text_preview": r["text"][:200] + "..." if len(r["text"]) > 200 else r["text"],
+                "text_preview": r["text"][:200] + "..."
+                if len(r["text"]) > 200
+                else r["text"],
             }
             for r in results
         ],
@@ -235,3 +246,45 @@ async def stats() -> dict[str, Any]:
         "total_sources": len(sources),
         "sources": sources,
     }
+
+
+@app.get("/graph/data")
+async def graph_data() -> dict[str, Any]:
+    """knowledge_graph.jsonをそのまま返す。"""
+    graph_path = Path("data/exports/knowledge_graph.json")
+    if not graph_path.exists():
+        raise HTTPException(status_code=404, detail="Knowledge graph not found. Run graph-build first.")
+    with open(graph_path, encoding="utf-8") as f:
+        return _json.load(f)
+
+
+@app.get("/graph/top")
+async def graph_top(n: int = Query(20, ge=5, le=100)) -> dict[str, Any]:
+    """上位n件の概念とエッジを返す（グラフ・ヒートマップ用）。"""
+    graph_path = Path("data/exports/knowledge_graph.json")
+    if not graph_path.exists():
+        raise HTTPException(status_code=404, detail="Knowledge graph not found.")
+    with open(graph_path, encoding="utf-8") as f:
+        data = _json.load(f)
+    nodes = sorted(data["nodes"], key=lambda x: x.get("frequency", 0), reverse=True)[:n]
+    top_ids = {nd["id"] for nd in nodes}
+    edges = [e for e in data["edges"] if e["source"] in top_ids and e["target"] in top_ids]
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "stats": data["stats"],
+    }
+
+
+@app.get("/umap/data")
+async def umap_data() -> dict[str, Any]:
+    """UMAP投影データを返す（埋め込み空間可視化用）。"""
+    umap_path = Path("data/exports/umap_projection.json")
+    if not umap_path.exists():
+        raise HTTPException(status_code=404, detail="UMAP data not found. Run scripts/build_umap.py first.")
+    with open(umap_path, encoding="utf-8") as f:
+        return _json.load(f)
+
+
+# フロントエンドの静的ファイルをマウント（ルーティングの最後に配置する）
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")

@@ -144,7 +144,7 @@ rsa==4.9
 ruff==0.12.8
 sacrebleu==1.5.0
 safetensors==0.7.0
-scikit-learn==1.5.1
+scikit-learn==1.6.1
 scipy==1.13.1
 selenium==4.36.0
 semantic-version==2.10.0
@@ -194,3 +194,4 @@ xxhash==3.5.0
 yarl==1.9.4
 zipp==3.20.1
 zstandard==0.23.0
+umap-learn==0.5.11

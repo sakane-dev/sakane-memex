@@ -229,6 +229,25 @@ class CorpusStore:
             logger.error("list_sources failed: %s", e)
             return []
 
+    def get_all_embeddings(self) -> list[dict]:
+        """全チャンクのベクトル・テキスト・メタデータを返す（UMAP用）。"""
+        try:
+            result = self._collection.get(
+                include=["documents", "metadatas", "embeddings"],
+            )
+            items = []
+            for i, chunk_id in enumerate(result["ids"]):
+                items.append({
+                    "chunk_id": chunk_id,
+                    "text": result["documents"][i],
+                    "metadata": result["metadatas"][i],
+                    "embedding": result["embeddings"][i],
+                })
+            return items
+        except Exception as e:
+            logger.error("get_all_embeddings failed: %s", e)
+            return []
+
     # ------------------------------------------------------------------
     # Utilities
     # ------------------------------------------------------------------

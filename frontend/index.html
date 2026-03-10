@@ -1,0 +1,1431 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>sakane-memex</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Noto+Sans+JP:wght@300;400;500&display=swap"
+        rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        :root {
+            --bg: #0a0c10;
+            --surface: #111520;
+            --card: #161b28;
+            --border: #1e2638;
+            --accent: #4a9eff;
+            --accent2: #7c3aed;
+            --accent3: #10b981;
+            --warn: #f59e0b;
+            --text: #e2e8f0;
+            --muted: #64748b;
+            --dim: #334155;
+            --mono: 'Space Mono', monospace;
+            --sans: 'Noto Sans JP', sans-serif;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        html {
+            scroll-behavior: smooth
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            font-size: 14px;
+            line-height: 1.6;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── GRID BACKGROUND ── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(74, 158, 255, .03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(74, 158, 255, .03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── LAYOUT ── */
+        #app {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh
+        }
+
+        /* ── HEADER ── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 32px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10, 12, 16, .9);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-family: var(--mono);
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: .1em;
+            text-transform: lowercase;
+        }
+
+        .logo span {
+            color: var(--muted)
+        }
+
+        .corpus-badge {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--muted);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 4px 10px;
+            border-radius: 4px;
+        }
+
+        .corpus-badge strong {
+            color: var(--accent3)
+        }
+
+        /* ── NAV ── */
+        nav {
+            display: flex;
+            gap: 2px;
+            padding: 12px 32px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .tab {
+            font-family: var(--mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            color: var(--muted);
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all .15s;
+            background: none;
+        }
+
+        .tab:hover {
+            color: var(--text);
+            background: var(--card)
+        }
+
+        .tab.active {
+            color: var(--accent);
+            background: rgba(74, 158, 255, .08);
+            border-color: rgba(74, 158, 255, .2);
+        }
+
+        /* ── MAIN ── */
+        main {
+            flex: 1;
+            padding: 28px 32px;
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto
+        }
+
+        /* ── PANELS ── */
+        .panel {
+            display: none;
+            animation: fadeIn .2s ease
+        }
+
+        .panel.active {
+            display: block
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(4px)
+            }
+
+            to {
+                opacity: 1;
+                transform: none
+            }
+        }
+
+        /* ── CARDS ── */
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .card-header {
+            font-family: var(--mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            color: var(--muted);
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* ── SEARCH ── */
+        .search-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px
+        }
+
+        .search-input {
+            flex: 1;
+            font-family: var(--mono);
+            font-size: 14px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 12px 16px;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color .15s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent)
+        }
+
+        .search-input::placeholder {
+            color: var(--dim)
+        }
+
+        select {
+            font-family: var(--mono);
+            font-size: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 12px 14px;
+            border-radius: 6px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .btn {
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .1em;
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all .15s;
+            white-space: nowrap;
+        }
+
+        .btn:hover {
+            background: #6bb4ff;
+            transform: translateY(-1px)
+        }
+
+        .btn:active {
+            transform: none
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid rgba(74, 158, 255, .3);
+        }
+
+        .btn-ghost:hover {
+            background: rgba(74, 158, 255, .08);
+            color: var(--accent)
+        }
+
+        .result-item {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 10px;
+            background: var(--surface);
+            transition: border-color .15s;
+        }
+
+        .result-item:hover {
+            border-color: var(--dim)
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px
+        }
+
+        .score-bar-wrap {
+            flex: 1;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden
+        }
+
+        .score-bar {
+            height: 100%;
+            border-radius: 2px;
+            transition: width .4s cubic-bezier(.4, 0, .2, 1)
+        }
+
+        .score-val {
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 700;
+            min-width: 42px;
+            text-align: right
+        }
+
+        .result-title {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--muted)
+        }
+
+        .result-text {
+            font-size: 13px;
+            color: var(--text);
+            line-height: 1.7
+        }
+
+        .tag {
+            font-family: var(--mono);
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 3px;
+            background: rgba(74, 158, 255, .1);
+            color: var(--accent);
+            border: 1px solid rgba(74, 158, 255, .2);
+        }
+
+        /* ── STATS ── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+        }
+
+        .stat-card.blue::before {
+            background: var(--accent)
+        }
+
+        .stat-card.purple::before {
+            background: var(--accent2)
+        }
+
+        .stat-card.green::before {
+            background: var(--accent3)
+        }
+
+        .stat-num {
+            font-family: var(--mono);
+            font-size: 36px;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+
+        .stat-num.blue {
+            color: var(--accent)
+        }
+
+        .stat-num.purple {
+            color: var(--accent2)
+        }
+
+        .stat-num.green {
+            color: var(--accent3)
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--muted)
+        }
+
+        .paradigm-bars {}
+
+        .paradigm-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px
+        }
+
+        .paradigm-name {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text);
+            width: 120px;
+            flex-shrink: 0;
+            text-align: right
+        }
+
+        .paradigm-bar-wrap {
+            flex: 1;
+            height: 20px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative
+        }
+
+        .paradigm-bar {
+            height: 100%;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            transition: width .6s cubic-bezier(.4, 0, .2, 1)
+        }
+
+        .paradigm-count {
+            font-family: var(--mono);
+            font-size: 10px;
+            color: #000;
+            font-weight: 700
+        }
+
+        /* ── GRAPH ── */
+        #graph-container {
+            width: 100%;
+            height: 600px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #graph-svg {
+            width: 100%;
+            height: 100%
+        }
+
+        .graph-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 12px
+        }
+
+        .graph-info {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--muted);
+            pointer-events: none;
+        }
+
+        #node-tooltip {
+            position: absolute;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity .15s;
+            max-width: 260px;
+            z-index: 10;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
+        }
+
+        #node-tooltip.visible {
+            opacity: 1
+        }
+
+        #node-tooltip .tt-name {
+            font-family: var(--mono);
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 4px
+        }
+
+        #node-tooltip .tt-row {
+            color: var(--muted);
+            line-height: 1.8
+        }
+
+        #node-tooltip .tt-row strong {
+            color: var(--text)
+        }
+
+        /* ── HEATMAP ── */
+        #heatmap-container {
+            width: 100%;
+            overflow: auto;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        #heatmap-svg {
+            display: block
+        }
+
+        .n-slider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px
+        }
+
+        .n-slider label {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--muted)
+        }
+
+        .n-slider input[type=range] {
+            accent-color: var(--accent)
+        }
+
+        .n-slider span {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--accent);
+            width: 24px
+        }
+
+        /* ── ANALYZE ── */
+        .analyze-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px
+        }
+
+        textarea {
+            width: 100%;
+            font-family: var(--mono);
+            font-size: 13px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 14px;
+            border-radius: 6px;
+            resize: vertical;
+            min-height: 160px;
+            outline: none;
+            transition: border-color .15s;
+            line-height: 1.7;
+        }
+
+        textarea:focus {
+            border-color: var(--accent)
+        }
+
+        .analysis-result {}
+
+        .analysis-field {
+            margin-bottom: 14px
+        }
+
+        .analysis-label {
+            font-family: var(--mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            color: var(--muted);
+            margin-bottom: 6px
+        }
+
+        .analysis-value {
+            font-size: 13px;
+            color: var(--text);
+            line-height: 1.7
+        }
+
+        .concept-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px
+        }
+
+        .chip {
+            font-family: var(--mono);
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 3px;
+            background: rgba(124, 58, 237, .12);
+            color: #a78bfa;
+            border: 1px solid rgba(124, 58, 237, .25);
+        }
+
+        .paradigm-badge {
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent3);
+            background: rgba(16, 185, 129, .08);
+            border: 1px solid rgba(16, 185, 129, .2);
+            padding: 6px 14px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .relation-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--mono);
+            font-size: 11px;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .rel-arrow {
+            color: var(--accent);
+            font-size: 14px
+        }
+
+        .rel-type {
+            color: var(--muted);
+            font-size: 10px
+        }
+
+        /* ── SPINNER ── */
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        /* ── EMPTY/ERROR ── */
+        .empty {
+            text-align: center;
+            padding: 48px;
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 12px
+        }
+
+        .empty .ico {
+            font-size: 32px;
+            margin-bottom: 12px
+        }
+
+        .error-msg {
+            color: #f87171;
+            font-family: var(--mono);
+            font-size: 12px;
+            padding: 8px 12px;
+            background: rgba(248, 113, 113, .08);
+            border: 1px solid rgba(248, 113, 113, .2);
+            border-radius: 4px;
+            margin-top: 8px
+        }
+
+        #umap-tooltip.visible {
+            opacity: 1
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+
+        <!-- HEADER -->
+        <header>
+            <div class="logo">sakane<span>-</span>memex</div>
+            <div class="corpus-badge" id="corpus-badge">loading...</div>
+        </header>
+
+        <!-- NAV -->
+        <nav>
+            <button class="tab active" data-tab="search">// search</button>
+            <button class="tab" data-tab="graph">// graph</button>
+            <button class="tab" data-tab="heatmap">// heatmap</button>
+            <button class="tab" data-tab="analyze">// analyze</button>
+            <button class="tab" data-tab="stats">// stats</button>
+            <button class="tab" data-tab="embedding">// embedding</button>
+        </nav>
+
+        <!-- MAIN -->
+        <main>
+
+            <!-- ── SEARCH ── -->
+            <div class="panel active" id="panel-search">
+                <div class="search-row">
+                    <input class="search-input" id="search-q" type="text" placeholder="クエリを入力（日本語・英語）..."
+                        autocomplete="off">
+                    <select id="search-n">
+                        <option value="5">top 5</option>
+                        <option value="10" selected>top 10</option>
+                        <option value="20">top 20</option>
+                    </select>
+                    <button class="btn" id="search-btn">Search</button>
+                </div>
+                <div id="search-results"></div>
+            </div>
+
+            <!-- ── GRAPH ── -->
+            <div class="panel" id="panel-graph">
+                <div class="graph-controls">
+                    <div class="n-slider">
+                        <label>NODES</label>
+                        <input type="range" id="graph-n" min="10" max="80" value="40" step="5">
+                        <span id="graph-n-val">40</span>
+                    </div>
+                    <button class="btn btn-ghost" id="graph-reload">Reload</button>
+                    <span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto">drag to pan
+                        · scroll
+                        to zoom · click to inspect</span>
+                </div>
+                <div id="graph-container">
+                    <svg id="graph-svg"></svg>
+                    <div id="node-tooltip">
+                        <div class="tt-name" id="tt-name"></div>
+                        <div class="tt-row">freq: <strong id="tt-freq"></strong></div>
+                        <div class="tt-row">degree: <strong id="tt-degree"></strong></div>
+                        <div class="tt-row">paradigm: <strong id="tt-paradigm"></strong></div>
+                    </div>
+                    <div class="graph-info" id="graph-info"></div>
+                </div>
+            </div>
+
+            <!-- ── HEATMAP ── -->
+            <div class="panel" id="panel-heatmap">
+                <div class="graph-controls">
+                    <div class="n-slider">
+                        <label>TOP-N CONCEPTS</label>
+                        <input type="range" id="heatmap-n" min="5" max="25" value="15" step="1">
+                        <span id="heatmap-n-val">15</span>
+                    </div>
+                    <button class="btn btn-ghost" id="heatmap-reload">Reload</button>
+                </div>
+                <div id="heatmap-container">
+                    <div class="empty">
+                        <div class="ico">◈</div>Loading heatmap...
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── ANALYZE ── -->
+            <div class="panel" id="panel-analyze">
+                <div class="analyze-grid">
+                    <div class="card">
+                        <div class="card-header">input text</div>
+                        <textarea id="analyze-text" placeholder="分析するテキストを入力..."></textarea>
+                        <div style="margin-top:12px;display:flex;gap:8px">
+                            <button class="btn" id="analyze-btn">Analyze</button>
+                            <button class="btn btn-ghost" id="analyze-clear">Clear</button>
+                        </div>
+                        <div id="analyze-error"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">analysis result</div>
+                        <div id="analyze-result">
+                            <div class="empty">
+                                <div class="ico">⬡</div>テキストを入力して Analyze を実行
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── STATS ── -->
+            <div class="panel" id="panel-stats">
+                <div class="stats-grid">
+                    <div class="stat-card blue">
+                        <div class="stat-num blue" id="stat-chunks">—</div>
+                        <div class="stat-label">Total Chunks</div>
+                    </div>
+                    <div class="stat-card purple">
+                        <div class="stat-num purple" id="stat-nodes">—</div>
+                        <div class="stat-label">Graph Nodes</div>
+                    </div>
+                    <div class="stat-card green">
+                        <div class="stat-num green" id="stat-edges">—</div>
+                        <div class="stat-label">Graph Edges</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">paradigm distribution</div>
+                    <div id="paradigm-bars"></div>
+                </div>
+                <div style="margin-top:16px" class="card">
+                    <div class="card-header">ingested sources</div>
+                    <div id="stats-sources" style="font-family:var(--mono);font-size:12px;color:var(--muted)"></div>
+                </div>
+            </div>
+
+            <!-- ── EMBEDDING SPACE ── -->
+            <div class="panel" id="panel-embedding">
+                <div class="graph-controls">
+                    <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">
+                        qwen3-embedding 4096dim → UMAP 2d projection · <span id="umap-total"></span> points
+                    </div>
+                    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+                        <label style="font-family:var(--mono);font-size:11px;color:var(--muted)">FILTER</label>
+                        <select id="umap-paradigm-filter">
+                            <option value="">all paradigms</option>
+                        </select>
+                        <button class="btn btn-ghost" id="umap-reset-zoom">Reset Zoom</button>
+                    </div>
+                </div>
+                <div id="umap-container"
+                    style="width:100%;height:620px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
+                    <svg id="umap-svg" style="width:100%;height:100%"></svg>
+                    <div id="umap-tooltip"
+                        style="position:absolute;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;pointer-events:none;opacity:0;transition:opacity .15s;max-width:300px;z-index:10;box-shadow:0 8px 32px rgba(0,0,0,.5)">
+                        <div id="umap-tt-text"
+                            style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:4px;line-height:1.5">
+                        </div>
+                        <div id="umap-tt-paradigm" style="color:var(--muted);font-size:11px"></div>
+                        <div id="umap-tt-lang" style="color:var(--dim);font-size:10px"></div>
+                    </div>
+                    <div id="umap-legend"
+                        style="position:absolute;top:16px;left:16px;font-family:var(--mono);font-size:10px"></div>
+                </div>
+                <div style="margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--muted)">
+                    各点 = 1チャンク（619エントリ）· 色 = パラダイム · 近接 = 意味的類似 · ホバーで内容表示
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        const API = 'http://localhost:8000';
+
+        // ── TABS ──
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'graph' && !graphLoaded) loadGraph();
+                if (tab.dataset.tab === 'heatmap' && !heatmapLoaded) loadHeatmap();
+                if (tab.dataset.tab === 'stats') loadStats();
+                if (tab.dataset.tab === 'embedding' && !umapLoaded) loadUmap();
+            });
+        });
+
+        // ── INIT ──
+        async function init() {
+            try {
+                const r = await fetch(`${API}/`);
+                const d = await r.json();
+                document.getElementById('corpus-badge').innerHTML =
+                    `corpus: <strong>${d.corpus_size}</strong> chunks`;
+            } catch (e) {
+                document.getElementById('corpus-badge').textContent = 'API offline';
+            }
+        }
+        init();
+
+        // ── SEARCH ──
+        async function doSearch() {
+            const q = document.getElementById('search-q').value.trim();
+            if (!q) return;
+            const n = document.getElementById('search-n').value;
+            const el = document.getElementById('search-results');
+            el.innerHTML = `<div style="color:var(--muted);font-family:var(--mono);font-size:12px"><span class="spinner"></span>Searching...</div>`;
+            try {
+                const r = await fetch(`${API}/search?q=${encodeURIComponent(q)}&n=${n}`);
+                const d = await r.json();
+                if (!d.results || d.results.length === 0) {
+                    el.innerHTML = `<div class="empty"><div class="ico">◯</div>No results found</div>`;
+                    return;
+                }
+                el.innerHTML = d.results.map(hit => {
+                    const score = hit.score;
+                    const pct = Math.round(score * 100);
+                    const color = score > .7 ? 'var(--accent3)' : score > .5 ? 'var(--warn)' : 'var(--muted)';
+                    const anchor = hit.metadata?.anchor_text || hit.text;
+                    const preview = anchor.length > 300 ? anchor.slice(0, 300) + '…' : anchor;
+                    return `
+      <div class="result-item">
+        <div class="result-header">
+          <span class="score-val" style="color:${color}">${score.toFixed(3)}</span>
+          <div class="score-bar-wrap">
+            <div class="score-bar" style="width:${pct}%;background:${color}"></div>
+          </div>
+          <span class="tag">${hit.metadata?.language || ''}</span>
+        </div>
+        <div class="result-title">${hit.metadata?.doc_title || ''} ${hit.metadata?.heading_context ? '› ' + hit.metadata.heading_context : ''}</div>
+        <div class="result-text" style="margin-top:8px">${preview}</div>
+      </div>`;
+                }).join('');
+            } catch (e) {
+                el.innerHTML = `<div class="error-msg">Error: ${e.message}</div>`;
+            }
+        }
+        document.getElementById('search-btn').addEventListener('click', doSearch);
+        document.getElementById('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+        // ── GRAPH ──
+        let graphLoaded = false;
+        let graphData = null;
+
+        async function loadGraph() {
+            const n = parseInt(document.getElementById('graph-n').value);
+            document.getElementById('graph-info').textContent = 'loading...';
+            try {
+                const r = await fetch(`${API}/graph/top?n=${n}`);
+                graphData = await r.json();
+                drawGraph(graphData);
+                graphLoaded = true;
+            } catch (e) {
+                document.getElementById('graph-container').innerHTML =
+                    `<div class="empty"><div class="ico">◈</div>graph/top endpoint not available<br><small>${e.message}</small></div>`;
+            }
+        }
+
+        document.getElementById('graph-n').addEventListener('input', function () {
+            document.getElementById('graph-n-val').textContent = this.value;
+        });
+        document.getElementById('graph-reload').addEventListener('click', () => {
+            graphLoaded = false;
+            loadGraph();
+        });
+
+        function drawGraph(data) {
+            const container = document.getElementById('graph-container');
+            const W = container.clientWidth, H = container.clientHeight;
+            d3.select('#graph-svg').selectAll('*').remove();
+
+            const nodes = data.nodes.map(d => ({ ...d }));
+            const edges = data.edges.map(d => ({ ...d }));
+            const nodeMap = new Map(nodes.map(d => [d.id, d]));
+
+            // valid edges only
+            const links = edges.filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
+
+            const freqExtent = d3.extent(nodes, d => d.frequency || 1);
+            const rScale = d3.scaleSqrt().domain(freqExtent).range([4, 18]);
+            const wScale = d3.scaleLinear().domain([1, d3.max(links, d => d.weight) || 1]).range([.5, 4]);
+
+            const paradigmColors = {
+                '技術戦略的': '#4a9eff',
+                '認知科学的': '#7c3aed',
+                '哲学的': '#10b981',
+                '社会工学的': '#f59e0b',
+                '存在論的': '#ec4899',
+            };
+            const colorOf = p => paradigmColors[p] || '#64748b';
+
+            const svg = d3.select('#graph-svg')
+                .attr('width', W).attr('height', H);
+
+            const g = svg.append('g');
+
+            svg.call(d3.zoom().scaleExtent([.2, 4]).on('zoom', e => g.attr('transform', e.transform)));
+
+            const sim = d3.forceSimulation(nodes)
+                .force('link', d3.forceLink(links).id(d => d.id).distance(d => 60 + 80 / (d.weight || 1)))
+                .force('charge', d3.forceManyBody().strength(-180))
+                .force('center', d3.forceCenter(W / 2, H / 2))
+                .force('collision', d3.forceCollide().radius(d => rScale(d.frequency || 1) + 6));
+
+            const link = g.append('g').selectAll('line').data(links).enter().append('line')
+                .attr('stroke', 'rgba(74,158,255,.18)')
+                .attr('stroke-width', d => wScale(d.weight || 1));
+
+            const node = g.append('g').selectAll('circle').data(nodes).enter().append('circle')
+                .attr('r', d => rScale(d.frequency || 1))
+                .attr('fill', d => {
+                    const paradigms = Array.isArray(d.paradigms) ? d.paradigms : [d.paradigms || ''];
+                    const top = paradigms[0] || '';
+                    return colorOf(top);
+                })
+                .attr('fill-opacity', .75)
+                .attr('stroke', d => {
+                    const paradigms = Array.isArray(d.paradigms) ? d.paradigms : [d.paradigms || ''];
+                    return colorOf(paradigms[0] || '');
+                })
+                .attr('stroke-width', 1.5)
+                .style('cursor', 'pointer')
+                .call(d3.drag()
+                    .on('start', (e, d) => { if (!e.active) sim.alphaTarget(.3).restart(); d.fx = d.x; d.fy = d.y; })
+                    .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+                    .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+            // labels for large nodes
+            const label = g.append('g').selectAll('text').data(nodes.filter(d => (d.frequency || 1) >= 4)).enter().append('text')
+                .text(d => d.id)
+                .attr('font-size', 10)
+                .attr('font-family', "'Space Mono', monospace")
+                .attr('fill', 'var(--text)')
+                .attr('fill-opacity', .8)
+                .attr('text-anchor', 'middle')
+                .attr('dy', d => rScale(d.frequency || 1) + 12)
+                .style('pointer-events', 'none')
+                .style('user-select', 'none');
+
+            const tt = document.getElementById('node-tooltip');
+            node.on('mouseenter', (e, d) => {
+                const paradigms = Array.isArray(d.paradigms) ? d.paradigms : [d.paradigms || ''];
+                document.getElementById('tt-name').textContent = d.id;
+                document.getElementById('tt-freq').textContent = d.frequency || 0;
+                document.getElementById('tt-degree').textContent = d.degree || 0;
+                document.getElementById('tt-paradigm').textContent = [...new Set(paradigms)].slice(0, 3).join(', ');
+                tt.classList.add('visible');
+            })
+                .on('mousemove', (e) => {
+                    const rect = container.getBoundingClientRect();
+                    tt.style.left = (e.clientX - rect.left + 12) + 'px';
+                    tt.style.top = (e.clientY - rect.top - 10) + 'px';
+                })
+                .on('mouseleave', () => tt.classList.remove('visible'));
+
+            sim.on('tick', () => {
+                link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+                node.attr('cx', d => d.x).attr('cy', d => d.y);
+                label.attr('x', d => d.x).attr('y', d => d.y);
+            });
+
+            // legend
+            const legend = svg.append('g').attr('transform', 'translate(16,16)');
+            Object.entries(paradigmColors).forEach(([p, c], i) => {
+                const row = legend.append('g').attr('transform', `translate(0,${i * 18})`);
+                row.append('circle').attr('r', 5).attr('cx', 5).attr('cy', 5).attr('fill', c).attr('fill-opacity', .75);
+                row.append('text').attr('x', 15).attr('y', 9)
+                    .attr('font-size', 10).attr('font-family', "'Space Mono',monospace")
+                    .attr('fill', 'var(--muted)').text(p);
+            });
+
+            document.getElementById('graph-info').textContent =
+                `${nodes.length} nodes · ${links.length} edges`;
+        }
+
+        // ── HEATMAP ──
+        let heatmapLoaded = false;
+
+        async function loadHeatmap() {
+            const n = parseInt(document.getElementById('heatmap-n').value);
+            const container = document.getElementById('heatmap-container');
+            container.innerHTML = `<div class="empty"><span class="spinner"></span>Computing...</div>`;
+            try {
+                const r = await fetch(`${API}/graph/top?n=${n}`);
+                const data = await r.json();
+                drawHeatmap(data, container);
+                heatmapLoaded = true;
+            } catch (e) {
+                container.innerHTML = `<div class="error-msg">${e.message}</div>`;
+            }
+        }
+
+        document.getElementById('heatmap-n').addEventListener('input', function () {
+            document.getElementById('heatmap-n-val').textContent = this.value;
+        });
+        document.getElementById('heatmap-reload').addEventListener('click', () => {
+            heatmapLoaded = false;
+            loadHeatmap();
+        });
+
+        function drawHeatmap(data, container) {
+            const nodes = data.nodes.slice(0, parseInt(document.getElementById('heatmap-n').value));
+            const ids = nodes.map(d => d.id);
+            const N = ids.length;
+
+            // build co-occurrence matrix
+            const matrix = Array.from({ length: N }, () => new Array(N).fill(0));
+            const idx = new Map(ids.map((id, i) => [id, i]));
+            data.edges.forEach(e => {
+                const i = idx.get(e.source), j = idx.get(e.target);
+                if (i !== undefined && j !== undefined) {
+                    matrix[i][j] = e.weight || 1;
+                    matrix[j][i] = e.weight || 1;
+                }
+            });
+
+            const cellSize = 28;
+            const labelW = 140;
+            const margin = { top: labelW, left: labelW };
+            const svgW = margin.left + N * cellSize + 20;
+            const svgH = margin.top + N * cellSize + 20;
+
+            const maxVal = d3.max(matrix.flat()) || 1;
+            const colorScale = d3.scaleSequential()
+                .domain([0, maxVal])
+                .interpolator(t => {
+                    if (t === 0) return 'rgba(30,38,56,1)';
+                    return d3.interpolateRgb('#1e2638', '#4a9eff')(t);
+                });
+
+            d3.select('#heatmap-container').selectAll('*').remove();
+            container.innerHTML = '';
+
+            const svg = d3.select(container).append('svg')
+                .attr('id', 'heatmap-svg')
+                .attr('width', svgW).attr('height', svgH);
+
+            const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // cells
+            const cells = [];
+            for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) cells.push({ i, j, v: matrix[i][j] });
+
+            g.selectAll('rect').data(cells).enter().append('rect')
+                .attr('x', d => d.j * cellSize)
+                .attr('y', d => d.i * cellSize)
+                .attr('width', cellSize - 1)
+                .attr('height', cellSize - 1)
+                .attr('fill', d => colorScale(d.v))
+                .attr('rx', 2)
+                .append('title')
+                .text(d => `${ids[d.i]} × ${ids[d.j]}: ${d.v}`);
+
+            // weight labels in cells with value
+            g.selectAll('text.cell-val').data(cells.filter(d => d.v > 0)).enter()
+                .append('text').attr('class', 'cell-val')
+                .attr('x', d => d.j * cellSize + cellSize / 2)
+                .attr('y', d => d.i * cellSize + cellSize / 2 + 4)
+                .attr('text-anchor', 'middle')
+                .attr('font-size', 9).attr('font-family', "'Space Mono',monospace")
+                .attr('fill', 'rgba(255,255,255,.85)')
+                .text(d => d.v);
+
+            // row labels
+            g.selectAll('text.row-label').data(ids).enter().append('text').attr('class', 'row-label')
+                .attr('x', -6).attr('y', (d, i) => i * cellSize + cellSize / 2 + 4)
+                .attr('text-anchor', 'end')
+                .attr('font-size', 10).attr('font-family', "'Space Mono',monospace")
+                .attr('fill', 'var(--muted)')
+                .text(d => d.length > 12 ? d.slice(0, 11) + '…' : d);
+
+            // col labels
+            g.selectAll('text.col-label').data(ids).enter().append('text').attr('class', 'col-label')
+                .attr('x', (d, i) => i * cellSize + cellSize / 2)
+                .attr('y', -8)
+                .attr('text-anchor', 'start')
+                .attr('transform', (d, i) => `rotate(-45, ${i * cellSize + cellSize / 2}, -8)`)
+                .attr('font-size', 10).attr('font-family', "'Space Mono',monospace")
+                .attr('fill', 'var(--muted)')
+                .text(d => d.length > 12 ? d.slice(0, 11) + '…' : d);
+
+            // color scale legend
+            const legendW = 160, legendH = 12;
+            const lg = svg.append('g').attr('transform', `translate(${margin.left}, ${svgH - 24})`);
+            const defs = svg.append('defs');
+            const grad = defs.append('linearGradient').attr('id', 'hm-grad');
+            grad.append('stop').attr('offset', '0%').attr('stop-color', '#1e2638');
+            grad.append('stop').attr('offset', '100%').attr('stop-color', '#4a9eff');
+            lg.append('rect').attr('width', legendW).attr('height', legendH)
+                .attr('fill', 'url(#hm-grad)').attr('rx', 2);
+            lg.append('text').attr('x', 0).attr('y', -4)
+                .attr('font-size', 9).attr('font-family', "'Space Mono',monospace").attr('fill', 'var(--muted)').text('0');
+            lg.append('text').attr('x', legendW).attr('y', -4).attr('text-anchor', 'end')
+                .attr('font-size', 9).attr('font-family', "'Space Mono',monospace").attr('fill', 'var(--accent)').text(maxVal);
+            lg.append('text').attr('x', legendW / 2).attr('y', legendH + 12).attr('text-anchor', 'middle')
+                .attr('font-size', 9).attr('font-family', "'Space Mono',monospace").attr('fill', 'var(--muted)').text('co-occurrence weight');
+        }
+
+        // ── ANALYZE ──
+        document.getElementById('analyze-btn').addEventListener('click', async () => {
+            const text = document.getElementById('analyze-text').value.trim();
+            if (!text) return;
+            const resultEl = document.getElementById('analyze-result');
+            const errEl = document.getElementById('analyze-error');
+            errEl.innerHTML = '';
+            resultEl.innerHTML = `<div style="color:var(--muted);font-family:var(--mono);font-size:12px"><span class="spinner"></span>Analyzing with qwen3...</div>`;
+            try {
+                const r = await fetch(`${API}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, chunk_id: '' })
+                });
+                if (!r.ok) throw new Error(await r.text());
+                const d = await r.json();
+
+                const conceptsHtml = (d.key_concepts || []).map(c => `<span class="chip">${c}</span>`).join('');
+                const relationsHtml = (d.relations || []).map(rel =>
+                    `<div class="relation-row">
+        <span>${rel.from || ''}</span>
+        <span class="rel-arrow">→</span>
+        <span class="rel-type">${rel.relation || ''}</span>
+        <span class="rel-arrow">→</span>
+        <span>${rel.to || ''}</span>
+      </div>`
+                ).join('');
+
+                resultEl.innerHTML = `
+      <div class="analysis-field">
+        <div class="analysis-label">paradigm</div>
+        <div class="paradigm-badge">${d.paradigm || '—'}</div>
+      </div>
+      <div class="analysis-field">
+        <div class="analysis-label">context summary</div>
+        <div class="analysis-value">${d.context_summary || '—'}</div>
+      </div>
+      <div class="analysis-field">
+        <div class="analysis-label">semantic hypothesis</div>
+        <div class="analysis-value" style="color:var(--accent);font-style:italic">${d.semantic_hypothesis || '—'}</div>
+      </div>
+      <div class="analysis-field">
+        <div class="analysis-label">key concepts</div>
+        <div class="concept-chips">${conceptsHtml || '—'}</div>
+      </div>
+      ${d.relations?.length ? `
+      <div class="analysis-field">
+        <div class="analysis-label">relations</div>
+        ${relationsHtml}
+      </div>` : ''}
+      <div style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--dim)">
+        provider: ${d.provider_used || '—'} · chunk_id: ${d.chunk_id || '—'}
+      </div>`;
+            } catch (e) {
+                resultEl.innerHTML = `<div class="empty"><div class="ico">⚠</div></div>`;
+                errEl.innerHTML = `<div class="error-msg">${e.message}</div>`;
+            }
+        });
+        document.getElementById('analyze-clear').addEventListener('click', () => {
+            document.getElementById('analyze-text').value = '';
+            document.getElementById('analyze-result').innerHTML =
+                `<div class="empty"><div class="ico">⬡</div>テキストを入力して Analyze を実行</div>`;
+        });
+
+        // ── STATS ──
+        async function loadStats() {
+            try {
+                const [statsR, graphR] = await Promise.all([
+                    fetch(`${API}/stats`).then(r => r.json()),
+                    fetch(`${API}/graph/top?n=100`).then(r => r.json()).catch(() => null),
+                ]);
+                document.getElementById('stat-chunks').textContent = statsR.total_chunks ?? '—';
+                if (graphR) {
+                    document.getElementById('stat-nodes').textContent = graphR.stats?.total_nodes ?? '—';
+                    document.getElementById('stat-edges').textContent = graphR.stats?.total_edges ?? '—';
+
+                    // paradigm bars
+                    const dist = graphR.stats?.paradigm_distribution || {};
+                    const total = Object.values(dist).reduce((a, b) => a + b, 0) || 1;
+                    const sorted = Object.entries(dist).sort((a, b) => b[1] - a[1]).slice(0, 8);
+                    const barColors = ['#4a9eff', '#7c3aed', '#10b981', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6', '#f43f5e'];
+                    document.getElementById('paradigm-bars').innerHTML = sorted.map(([name, count], i) => {
+                        const pct = Math.round(count / total * 100);
+                        return `<div class="paradigm-row">
+          <div class="paradigm-name">${name}</div>
+          <div class="paradigm-bar-wrap">
+            <div class="paradigm-bar" style="width:${pct}%;background:${barColors[i % barColors.length]}">
+              <span class="paradigm-count">${count}</span>
+            </div>
+          </div>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted);width:36px;text-align:right">${pct}%</span>
+        </div>`;
+                    }).join('');
+                }
+                // sources
+                document.getElementById('stats-sources').innerHTML =
+                    (statsR.sources || []).map(s => `<div style="padding:4px 0;border-bottom:1px solid var(--border)">${s}</div>`).join('') || '—';
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // ── EMBEDDING SPACE ──
+        let umapLoaded = false;
+        let umapAllPoints = [];
+
+        async function loadUmap() {
+            const container = document.getElementById('umap-container');
+            try {
+                const r = await fetch(`${API}/umap/data`);
+                const data = await r.json();
+                umapAllPoints = data.points;
+                document.getElementById('umap-total').textContent = data.meta.total;
+
+                // パラダイムフィルタを構築
+                const paradigms = [...new Set(data.points.map(p => p.paradigm).filter(Boolean))].sort();
+                const sel = document.getElementById('umap-paradigm-filter');
+                paradigms.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p; opt.textContent = p;
+                    sel.appendChild(opt);
+                });
+                sel.addEventListener('change', () => drawUmap(umapAllPoints, sel.value));
+
+                drawUmap(data.points, '');
+                umapLoaded = true;
+            } catch (e) {
+                container.innerHTML = `<div class="empty"><div class="ico">◈</div>UMAP data not found<br><small>Run: python scripts/build_umap.py</small></div>`;
+            }
+        }
+
+        function drawUmap(allPoints, paradigmFilter) {
+            const container = document.getElementById('umap-container');
+            const W = container.clientWidth, H = container.clientHeight;
+
+            const points = paradigmFilter
+                ? allPoints.filter(p => p.paradigm === paradigmFilter)
+                : allPoints;
+
+            d3.select('#umap-svg').selectAll('*').remove();
+
+            const paradigmColors = {
+                '技術戦略的': '#4a9eff',
+                '認知科学的': '#7c3aed',
+                '哲学的': '#10b981',
+                '社会工学的': '#f59e0b',
+                '存在論的': '#ec4899',
+            };
+            const colorOf = p => paradigmColors[p] || '#64748b';
+
+            const margin = 40;
+            const xScale = d3.scaleLinear().domain([0, 1]).range([margin, W - margin]);
+            const yScale = d3.scaleLinear().domain([0, 1]).range([margin, H - margin]);
+
+            const svg = d3.select('#umap-svg').attr('width', W).attr('height', H);
+            const g = svg.append('g');
+
+            const zoom = d3.zoom().scaleExtent([0.5, 20]).on('zoom', e => g.attr('transform', e.transform));
+            svg.call(zoom);
+
+            document.getElementById('umap-reset-zoom').onclick = () => {
+                svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
+            };
+
+            // 密度感のあるグロー効果
+            const defs = svg.append('defs');
+            const filter = defs.append('filter').attr('id', 'glow');
+            filter.append('feGaussianBlur').attr('stdDeviation', '2').attr('result', 'coloredBlur');
+            const feMerge = filter.append('feMerge');
+            feMerge.append('feMergeNode').attr('in', 'coloredBlur');
+            feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+            // 背景密度ヒント（ボロノイ的雰囲気）
+            const circles = g.selectAll('circle').data(points).enter().append('circle')
+                .attr('cx', d => xScale(d.x))
+                .attr('cy', d => yScale(d.y))
+                .attr('r', d => 3 + ((d.frequency || 1) - 1) * 2.5)
+                .attr('fill', d => colorOf(d.paradigm))
+                .attr('fill-opacity', paradigmFilter ? 0.85 : 0.65)
+                .attr('stroke', d => colorOf(d.paradigm))
+                .attr('stroke-width', 0.5)
+                .attr('stroke-opacity', 0.4)
+                .style('cursor', 'pointer')
+                .style('filter', 'url(#glow)');
+
+            // ホバー
+            const tt = document.getElementById('umap-tooltip');
+            circles
+                .on('mouseenter', (e, d) => {
+                    document.getElementById('umap-tt-text').textContent = d.text;
+                    document.getElementById('umap-tt-paradigm').textContent = `paradigm: ${d.paradigm || '—'}`;
+                    document.getElementById('umap-tt-lang').textContent = `lang: ${d.language || '—'}  entry: ${d.entry_number || '—'}`;
+                    tt.classList.add('visible');
+                    d3.select(e.target).attr('r', d => {
+                        return 3 + ((d.frequency || 1) - 1) * 2.5 + 4;  // ← 変更
+                    }).attr('fill-opacity', 1);
+                })
+                .on('mousemove', (e) => {
+                    const rect = container.getBoundingClientRect();
+                    tt.style.left = (e.clientX - rect.left + 14) + 'px';
+                    tt.style.top = (e.clientY - rect.top - 10) + 'px';
+                })
+                .on('mouseleave', (e) => {
+                    tt.classList.remove('visible');
+                    d3.select(e.target).attr('r', d => {
+                        return 3 + ((d.frequency || 1) - 1) * 2.5;  // ← 変更
+                    }).attr('fill-opacity', paradigmFilter ? 0.85 : 0.65);
+                });
+
+            // 近傍テキストラベル（高頻度概念のみ）
+            // graph_progress から frequency情報は持っていないので anchor_text の短いもの＝単語エントリ
+            const shortPoints = points.filter(p => p.text.length <= 15);
+            g.selectAll('text.umap-label').data(shortPoints).enter().append('text')
+                .attr('class', 'umap-label')
+                .attr('x', d => xScale(d.x) + 6)
+                .attr('y', d => yScale(d.y) + 4)
+                .attr('font-size', 9)
+                .attr('font-family', "'Space Mono', monospace")
+                .attr('fill', d => colorOf(d.paradigm))
+                .attr('fill-opacity', 0.7)
+                .style('pointer-events', 'none')
+                .style('user-select', 'none')
+                .text(d => d.text);
+
+            // 凡例
+            const legend = document.getElementById('umap-legend');
+            legend.innerHTML = Object.entries(paradigmColors).map(([p, c]) => {
+                const count = allPoints.filter(pt => pt.paradigm === p).length;
+                return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+          <svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="${c}" fill-opacity=".75"/></svg>
+          <span style="color:var(--muted)">${p}</span>
+          <span style="color:var(--dim)">${count}</span>
+        </div>`;
+            }).join('');
+        }
+    </script>
+</body>
+
+</html>
