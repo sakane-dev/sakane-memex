@@ -92,6 +92,19 @@ class AnalyzeRequest(BaseModel):
     chunk_id: str = ""
 
 
+class IngestEntryRequest(BaseModel):
+    """
+    Web UI から直接エントリを追加するリクエスト。
+
+    単一エントリ:
+        {"entries": ["アテンション・エコノミー"]}
+
+    複数一括（改行区切りで貼り付けた内容をそのまま渡す）:
+        {"entries": ["概念A", "概念B", "概念C"]}
+    """
+    entries: list[str]  # 1件でもリストで渡す（UIで改行split済み）
+
+
 # ------------------------------------------------------------------
 # Endpoints
 # ------------------------------------------------------------------
@@ -284,6 +297,41 @@ async def umap_data() -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="UMAP data not found. Run scripts/build_umap.py first.")
     with open(umap_path, encoding="utf-8") as f:
         return _json.load(f)
+
+
+@app.post("/ingest/entry")
+async def ingest_entry(req: IngestEntryRequest) -> dict[str, Any]:
+    """
+    Web UI から直接エントリをコーパスに追加する。
+
+    単一・複数一括どちらも受け付ける。
+    chunk_id は anchor_text のみから生成するため、
+    MDファイル経由のインジェストと衝突しない（同一テキストは同一ID）。
+
+    空行・空文字列は自動的にスキップされる。
+    """
+    from src.ingestor.chunker import make_chunk_from_text
+    from datetime import datetime, timezone
+
+    # 空行を除去して有効エントリのみ処理
+    valid_entries = [e.strip() for e in req.entries if e.strip()]
+    if not valid_entries:
+        raise HTTPException(status_code=400, detail="有効なエントリが1件もありません")
+
+    store = get_store()
+    chunks = [make_chunk_from_text(text=entry) for entry in valid_entries]
+    added = store.add_chunks(chunks)
+
+    # ingest_state.json は MD フロー専用のため Web UI 入力では更新しない
+    # （entry_number=0 のエントリは時系列分析では除外される設計）
+
+    return {
+        "status": "success",
+        "submitted": len(valid_entries),
+        "chunks_added": added,
+        "total_corpus_size": store.count(),
+        "entries": valid_entries,
+    }
 
 
 # フロントエンドの静的ファイルをマウント（ルーティングの最後に配置する）

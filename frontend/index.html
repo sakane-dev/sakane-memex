@@ -714,6 +714,7 @@
             <button class="tab" data-tab="analyze">// analyze</button>
             <button class="tab" data-tab="stats">// stats</button>
             <button class="tab" data-tab="embedding">// embedding</button>
+            <button class="tab" data-tab="add">// add</button>
         </nav>
 
         <!-- MAIN -->
@@ -855,6 +856,37 @@
                 </div>
                 <div style="margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--muted)">
                     各点 = 1チャンク（619エントリ）· 色 = パラダイム · 近接 = 意味的類似 · ホバーで内容表示
+                </div>
+            </div>
+
+            <!-- ── ADD ENTRY ── -->
+            <div class="panel" id="panel-add">
+                <div class="analyze-grid">
+                    <div class="card">
+                        <div class="card-header">add entries to corpus</div>
+                        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+                            <button class="btn btn-ghost" id="add-mode-single" style="border-color:rgba(74,158,255,.5);color:var(--accent)">Single</button>
+                            <button class="btn btn-ghost" id="add-mode-bulk">Bulk</button>
+                            <span id="add-mode-hint" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px">
+                                1ワード / 1フレーズを入力
+                            </span>
+                        </div>
+                        <textarea id="add-text" placeholder="アテンション・エコノミー" style="min-height:120px"></textarea>
+                        <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+                            <button class="btn" id="add-btn">Add to Corpus</button>
+                            <button class="btn btn-ghost" id="add-clear">Clear</button>
+                            <span id="add-count" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto"></span>
+                        </div>
+                        <div id="add-error" style="margin-top:8px"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">result</div>
+                        <div id="add-result">
+                            <div class="empty">
+                                <div class="ico">＋</div>エントリを入力して Add to Corpus を実行
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1291,6 +1323,118 @@
                 console.error(e);
             }
         }
+
+        // ── ADD ENTRY ──
+        let addMode = 'single';
+
+        document.getElementById('add-mode-single').addEventListener('click', () => {
+            addMode = 'single';
+            document.getElementById('add-mode-single').style.borderColor = 'rgba(74,158,255,.5)';
+            document.getElementById('add-mode-single').style.color = 'var(--accent)';
+            document.getElementById('add-mode-bulk').style.borderColor = '';
+            document.getElementById('add-mode-bulk').style.color = '';
+            document.getElementById('add-text').placeholder = 'アテンション・エコノミー';
+            document.getElementById('add-mode-hint').textContent = '1ワード / 1フレーズを入力';
+            document.getElementById('add-count').textContent = '';
+        });
+
+        document.getElementById('add-mode-bulk').addEventListener('click', () => {
+            addMode = 'bulk';
+            document.getElementById('add-mode-bulk').style.borderColor = 'rgba(74,158,255,.5)';
+            document.getElementById('add-mode-bulk').style.color = 'var(--accent)';
+            document.getElementById('add-mode-single').style.borderColor = '';
+            document.getElementById('add-mode-single').style.color = '';
+            document.getElementById('add-text').placeholder = '概念A\n概念B\n概念C\n（1行1エントリ）';
+            document.getElementById('add-mode-hint').textContent = '1行1エントリで複数を一括登録';
+            document.getElementById('add-count').textContent = '';
+        });
+
+        document.getElementById('add-text').addEventListener('input', () => {
+            if (addMode !== 'bulk') return;
+            const lines = document.getElementById('add-text').value
+                .split('\n').filter(l => l.trim()).length;
+            document.getElementById('add-count').textContent = lines > 0 ? `${lines} entries` : '';
+        });
+
+        async function doAdd() {
+            const raw = document.getElementById('add-text').value;
+            const errEl = document.getElementById('add-error');
+            const resultEl = document.getElementById('add-result');
+            errEl.innerHTML = '';
+
+            let entries;
+            if (addMode === 'single') {
+                const trimmed = raw.trim();
+                if (!trimmed) return;
+                entries = [trimmed];
+            } else {
+                entries = raw.split('\n').map(l => l.trim()).filter(Boolean);
+                if (entries.length === 0) return;
+            }
+
+            resultEl.innerHTML = `<div style="color:var(--muted);font-family:var(--mono);font-size:12px"><span class="spinner"></span>Adding ${entries.length} entr${entries.length > 1 ? 'ies' : 'y'}...</div>`;
+
+            try {
+                const r = await fetch(`${API}/ingest/entry`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ entries })
+                });
+                if (!r.ok) {
+                    const err = await r.json();
+                    throw new Error(err.detail || r.statusText);
+                }
+                const d = await r.json();
+
+                document.getElementById('corpus-badge').innerHTML =
+                    `corpus: <strong>${d.total_corpus_size}</strong> chunks`;
+
+                const listHtml = d.entries.map(e =>
+                    `<div class="relation-row"><span class="rel-arrow">✓</span><span>${e}</span></div>`
+                ).join('');
+
+                resultEl.innerHTML = `
+                    <div class="analysis-field">
+                        <div class="analysis-label">added</div>
+                        <div class="stat-num green" style="font-size:28px">${d.chunks_added}</div>
+                    </div>
+                    <div class="analysis-field">
+                        <div class="analysis-label">total corpus</div>
+                        <div style="font-family:var(--mono);font-size:18px;color:var(--accent)">${d.total_corpus_size} chunks</div>
+                    </div>
+                    <div class="analysis-field">
+                        <div class="analysis-label">entries</div>
+                        ${listHtml}
+                    </div>
+                    <div style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--dim)">
+                        source: web_ui · entry_number: 0（時系列分析では除外）
+                    </div>`;
+
+                if (addMode === 'single') {
+                    document.getElementById('add-text').value = '';
+                }
+                document.getElementById('add-count').textContent = '';
+
+            } catch (e) {
+                resultEl.innerHTML = `<div class="empty"><div class="ico">⚠</div></div>`;
+                errEl.innerHTML = `<div class="error-msg">${e.message}</div>`;
+            }
+        }
+
+        document.getElementById('add-btn').addEventListener('click', doAdd);
+        document.getElementById('add-text').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && addMode === 'single' && !e.shiftKey) {
+                e.preventDefault();
+                doAdd();
+            }
+        });
+        document.getElementById('add-clear').addEventListener('click', () => {
+            document.getElementById('add-text').value = '';
+            document.getElementById('add-count').textContent = '';
+            document.getElementById('add-result').innerHTML =
+                `<div class="empty"><div class="ico">＋</div>エントリを入力して Add to Corpus を実行</div>`;
+            document.getElementById('add-error').innerHTML = '';
+        });
 
         // ── EMBEDDING SPACE ──
         let umapLoaded = false;

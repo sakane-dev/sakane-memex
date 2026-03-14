@@ -41,3 +41,11 @@ data/2025-2026_mybuzzwords/
 # Python cache
 __pycache__/
 *.pyc
+data/chroma_db/
+data/exports/knowledge_graph.json
+data/exports/umap_projection.json
+data/exports/graph_progress.json
+data/exports/ingest_state.json
+.venv/
+__pycache__/
+*.pyc

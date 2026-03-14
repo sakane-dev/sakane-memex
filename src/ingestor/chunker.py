@@ -19,6 +19,11 @@ sakane-memex / src/ingestor/chunker.py
       "損失回避バイアス・現状維持バイアス・ハーディング効果
        アテンション・エコノミー
        Blameless Post-mortems"
+
+chunk_id 生成方針:
+  入力経路（MDファイル / Web UI）によらず衝突しないよう、
+  source_path を含まず anchor_text のみをシードにする。
+  同一テキストは常に同一IDになるため upsert が冪等になる。
 """
 
 from __future__ import annotations
@@ -43,9 +48,9 @@ _IMAGE_LINE = re.compile(r"^!\[.*\]\(.*\)$")
 @dataclass
 class Chunk:
     chunk_id: str
-    text: str  # コンテキストウィンドウ付きテキスト（embedding用）
-    anchor_text: str  # アンカーエントリー本体（検索結果表示用）
-    raw_text: str  # 元テキスト
+    text: str          # コンテキストウィンドウ付きテキスト（embedding用）
+    anchor_text: str   # アンカーエントリー本体（検索結果表示用）
+    raw_text: str      # 元テキスト
     source_path: str
     doc_title: str
     entry_number: int
@@ -58,8 +63,17 @@ class Chunk:
     is_long_form: bool = False
 
 
-def _make_chunk_id(source_path: str, entry_number: int, text: str) -> str:
-    seed = f"{source_path}::{entry_number}::{text[:128]}"
+def _make_chunk_id(anchor_text: str) -> str:
+    """
+    anchor_text のみをシードにした chunk_id を生成。
+
+    入力経路（MDファイル / Web UI）によらず同一テキストは同一IDになる。
+    これにより upsert が冪等になり、経路間の衝突も防止できる。
+
+    旧実装: SHA256(source_path + entry_number + text[:128])
+    新実装: SHA256(anchor_text[:256])
+    """
+    seed = anchor_text[:256]
     return hashlib.sha256(seed.encode()).hexdigest()[:16]
 
 
@@ -87,6 +101,56 @@ def _is_long_form(text: str) -> bool:
     return len(text) >= 40 and has_punct
 
 
+def make_chunk_from_text(
+    text: str,
+    source_path: str = "web_ui",
+    doc_title: str = "Web UI Entry",
+    entry_number: int = 0,
+) -> "Chunk":
+    """
+    任意のテキストから単一Chunkを生成するユーティリティ。
+    Web UI直接入力エンドポイント（/ingest/entry）から使用する。
+
+    entry_number=0 は「Web UI由来」を示す慣例値。
+    時系列分析（Phase 3）では entry_number=0 を除外することを推奨。
+    """
+    anchor = _clean_entry_text(text)
+    lang = _detect_language(anchor)
+    has_url = bool(re.search(r"https?://", text))
+    long_form = _is_long_form(anchor)
+    chunk_id = _make_chunk_id(anchor)
+
+    return Chunk(
+        chunk_id=chunk_id,
+        text=anchor,          # Web UI入力はコンテキストウィンドウなし（単体）
+        anchor_text=anchor,
+        raw_text=text.strip(),
+        source_path=source_path,
+        doc_title=doc_title,
+        entry_number=entry_number,
+        chunk_index=0,
+        total_chunks=1,
+        language=lang,
+        char_count=len(anchor),
+        has_url=has_url,
+        is_long_form=long_form,
+        metadata={
+            "source_path": source_path,
+            "doc_title": doc_title,
+            "entry_number": entry_number,
+            "chunk_index": 0,
+            "total_chunks": 1,
+            "language": lang,
+            "has_url": has_url,
+            "is_long_form": long_form,
+            "char_count": len(anchor),
+            "anchor_text": anchor,
+            "tags": "",
+            "notion_id": "",
+        },
+    )
+
+
 class CognitiveJournalChunker:
     """
     知識コーパス専用チャンカー。
@@ -98,7 +162,7 @@ class CognitiveJournalChunker:
         strategy: ChunkStrategy = "entry",
         skip_empty: bool = True,
         min_chars: int = 1,
-        context_window: int = 2,  # 前後何件を文脈として付加するか
+        context_window: int = 2,
         # 後方互換パラメータ
         max_chars: int = 0,
         chunk_overlap: int = 0,
@@ -122,7 +186,6 @@ class CognitiveJournalChunker:
         else:
             raw_entries = self._extract_lines(doc.raw_text)
 
-        # フィルタリング
         valid_entries: list[tuple[int, str]] = []
         for entry_num, raw_text in raw_entries:
             if self.skip_empty and not raw_text.strip():
@@ -135,14 +198,12 @@ class CognitiveJournalChunker:
             valid_entries.append((entry_num, raw_text))
 
         total = len(valid_entries)
-        # クリーンテキストのリスト（コンテキストウィンドウ参照用）
         clean_texts = [_clean_entry_text(rt) for _, rt in valid_entries]
 
         chunks = []
         for idx, (entry_num, raw_text) in enumerate(valid_entries):
             anchor = _clean_entry_text(raw_text)
 
-            # コンテキストウィンドウ: 前後N件を付加
             w = self.context_window
             start = max(0, idx - w)
             end = min(total, idx + w + 1)
@@ -152,12 +213,12 @@ class CognitiveJournalChunker:
             has_url = bool(re.search(r"https?://", raw_text))
             long_form = _is_long_form(anchor)
             lang = _detect_language(anchor)
-            chunk_id = _make_chunk_id(doc.source_path, entry_num, anchor)
+            chunk_id = _make_chunk_id(anchor)  # anchor_textのみをシードに変更
 
             chunk = Chunk(
                 chunk_id=chunk_id,
-                text=embedding_text,  # embedding用（文脈付き）
-                anchor_text=anchor,  # 表示用（エントリー本体）
+                text=embedding_text,
+                anchor_text=anchor,
                 raw_text=raw_text.strip(),
                 source_path=doc.source_path,
                 doc_title=doc.title,
@@ -178,7 +239,7 @@ class CognitiveJournalChunker:
                     "has_url": has_url,
                     "is_long_form": long_form,
                     "char_count": len(anchor),
-                    "anchor_text": anchor,  # 検索結果で表示するテキスト
+                    "anchor_text": anchor,
                     "tags": ", ".join(doc.tags) if doc.tags else "",
                     "notion_id": doc.notion_id,
                 },
